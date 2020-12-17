@@ -299,27 +299,17 @@
  */
 
 #if !defined(OPTIBOOT_CUSTOMVER)
-#define OPTIBOOT_CUSTOMVER 0
+#define OPTIBOOT_CUSTOMVER 99
 #endif
 
 unsigned const int __attribute__((section(".version"))) 
 optiboot_version = 256*(OPTIBOOT_MAJVER + OPTIBOOT_CUSTOMVER) + OPTIBOOT_MINVER;
 
-//const char __flash golden_image[] = {
-//    #include "golden_image.h"
-//};
-
-
+
 #include <inttypes.h>
-//#include <stdlib.h>
 #include <avr/io.h>
 #include <avr/pgmspace.h>
 #include <avr/eeprom.h>
-//#include <util/delay.h>
-//#include "CRC32.h"
-
-//uint32_t __attribute__((section(".crc"))) crc_checksum;
-//uint8_t __attribute__((section(".flag"))) valid_flag;
 
 /*
  * optiboot uses several "address" variables that are sometimes byte pointers,
@@ -481,9 +471,7 @@ static inline void read_mem(uint8_t memtype,
 void uartDelay() __attribute__ ((naked));
 #endif
 
-//void putstr(char *str);
-//uint8_t checkImage();
-void puthex(uint8_t number);
+//void puthex(uint8_t number);
 
 /*
  * RAMSTART should be self-explanatory.  It's bigger on parts with a
@@ -572,6 +560,8 @@ static addr16_t buff = {(uint8_t *)(RAMSTART)};
 
 #endif // VIRTUAL_BOOT_PARTITION
 
+static uint8_t IMAGE_VALID;
+
 
 /* everything that needs to run VERY early */
 void pre_main(void) {
@@ -593,12 +583,6 @@ void pre_main(void) {
 /* main program starts here */
 int main(void) {
   uint8_t ch;
-
-  // Set the power enable high
-  DDRC |= _BV(4);
-  PORTC |= _BV(4);
-
-//  _delay_ms(1000);
 
   /*
    * Making these local and in registers prevents the need for initializing
@@ -627,6 +611,17 @@ int main(void) {
   SP=RAMEND;  // This is done by hardware reset
 #endif
 
+  uint8_t valid_flag = pgm_read_byte_far(0x1f7ff);
+  IMAGE_VALID = (valid_flag == 0xAA);
+  if (!IMAGE_VALID)
+  {
+      watchdogConfig(WATCHDOG_OFF);
+
+      // Set the power enable high
+      DDRC |= _BV(4);
+      PORTC |= _BV(4);
+  }
+
 #if defined(OSCCAL_VALUE)
   OSCCAL = OSCCAL_VALUE;
 #endif
@@ -646,9 +641,7 @@ int main(void) {
   ch = MCUSR;
 #endif
   // Skip all logic and run bootloader if MCUSR is cleared (application request)
-  //if (ch != 0)
-  if (ch & _BV(WDRF))
-  //if ((ch & (_BV(WDRF) | _BV(EXTRF))) != _BV(EXTRF))
+  if (IMAGE_VALID && ch != 0)
   {
       /*
        * To run the boot loader, External Reset Flag must be set.
@@ -778,23 +771,7 @@ int main(void) {
 #endif
 #endif
 
-  //uint8_t validImage = checkImage();
-
-  //putch('i');
-  //putch('m');
-  //putch('g');
-  //putch(':');
-  //if (validImage)
-  //{
-      //putch('g');
-  //}
-  //else
-  //{
-      //putch('b');
-  //}
-  //putch('\n');
-  uint8_t valid_flag = pgm_read_byte_far(0x1f7ff);
-  puthex(valid_flag);
+  //puthex(valid_flag);
 
   /* Forever loop: exits by causing WDT reset */
   for (;;) {
@@ -1194,7 +1171,7 @@ void getNch(uint8_t count) {
 }
 
 void verifySpace() {
-  if (getch() != CRC_EOP) {
+  if ((getch() != CRC_EOP) && IMAGE_VALID) {
     watchdogConfig(WATCHDOG_16MS);    // shorten WD timeout
     while (1)			      // and busy-loop so that WD causes
       ;				      //  a reset and app start.
@@ -1211,7 +1188,7 @@ void flash_led(uint8_t count) {
     	while(!(TIFR & _BV(TOV1)));
 	#elif defined(__AVR_ATtiny43__)
   		#error "LED flash for Tiny43 not yet supported"
-	#else971FE77C
+	#else
   		TCNT1 = -(F_CPU/(1024*16));
     	TIFR1 = _BV(TOV1);
     	while(!(TIFR1 & _BV(TOV1)));
@@ -1434,139 +1411,8 @@ static void do_spm(uint16_t address, uint8_t command, uint16_t data) {
 #endif
 }
 #endif
+
 /*
-#define POLYNOMIAL 0xedb88320
-
-uint32_t updateCRC32(uint8_t datum, uint32_t crc)
-{
-    uint8_t seqNum = (crc ^ datum) & 0xFF;
-    //putch('A');
-
-    uint32_t seqVal = seqNum;
-    //putch('B');
-    for (int8_t i = 8; --i >= 0;)
-    {
-        //putch('C');
-        seqVal = (seqVal & 1) ? ((seqVal >> 1) ^ POLYNOMIAL) : (seqVal >> 1);
-    }
-    //putch('D');
-
-    return seqVal ^ (crc >> 8);
-}
-
-uint8_t checkImage()
-{
-    //putstr("CHECKSUM START\n");
-
-    watchdogConfig(WATCHDOG_OFF);
-
-    CRC32_reset();
-
-    for (uint16_t addr = 0; addr < &crc_checksum; addr++)
-    {
-        // Only print out once per page
-        if ((addr & 0xFF) == 0)
-        {
-            putch('V');
-        }
-        uint8_t b = pgm_read_byte_near(addr);
-        CRC32_update(b);
-    }
-    putch('\n');
-     
-
-    
-    const uint32_t Polynomial = 0xEDB88320;
-    uint32_t crc = 0xFFFFFFFF;
-
-    for (uint16_t addr = 0; addr < &crc_checksum; addr++)
-    {
-        // Only print out once per page
-        if ((addr & 0xFF) == 0)
-        {
-            putch('V');
-        }
-
-        crc ^= pgm_read_byte_near(addr);
-
-        for (int j = 0; j < 8; j++)
-        {
-            crc = (crc >> 1) ^ (-(int32_t)(crc & 1) & Polynomial);
-        }
-    }
-     
-    uint32_t crc = 0xFFFFFFFF;
-    uint32_t addr;
-    //char addrStr[16];
-    for (addr = 0; addr < &crc_checksum; addr++)
-    {
-        crc = updateCRC32(pgm_read_byte_near(addr), crc);
-
-        // Only print out once per page
-        //if ((addr & 0xFF) == 0)
-        {
-            //ultoa(addr, addrStr, 16);
-            //putch('0');
-            //putch('x');
-            //putstr(addrStr);
-            //putch('\n');
-        }
-    }
-    //ultoa(addr, addrStr, 16);
-    //putch('0');
-    //putch('x');
-    //putstr(addrStr);
-    //putch('\n');
-
-
-    //uint32_t crc = CRC32_finalize();
-    //putch('L');
-    //putch(':');
-
-    //char lCRC[16];
-    //ultoa(crc, lCRC, 16);
-    //for (uint8_t i = 0; (i < 16) && (lCRC[i] != '\0'); i++)
-    //{
-    //    putch(lCRC[i]);
-    //}
-    //putch('0');
-    //putch('x');
-    //putstr(lCRC);
-    //putch('\n');
-
-
-    //putch('I');
-    //putch(':');
-    //char iCRC[16];
-    //ultoa(crc_checksum, iCRC, 16);
-    //for (uint8_t i = 0; (i < 16) && (iCRC[i] != '\0'); i++)
-    //{
-    //    putch(iCRC[i]);
-    //}
-    //putch('0');
-    //putch('x');
-    //putstr(iCRC);
-    //putch('\n');
-
-    //putstr("CHECKSUM END\n");
-
-    watchdogConfig(WDTPERIOD);
-
-    return (crc == crc_checksum);
-}
-
-void putstr(char *str)
-{
-    char ch;
-
-    while((ch=*str)!= '\0')
-    {
-        putch(ch);
-        str++;
-    }
-}
-*/
-
 void puthex(uint8_t number)
 {
     uint8_t c;
@@ -1580,9 +1426,8 @@ void puthex(uint8_t number)
         putch(c - 10 + 'A');
     else
         putch(c + '0');
-
 }
-
+*/
 
 #if BIGBOOT
 /*
