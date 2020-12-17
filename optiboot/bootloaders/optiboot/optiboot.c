@@ -615,8 +615,6 @@ int main(void) {
   IMAGE_VALID = (valid_flag == 0xAA);
   if (!IMAGE_VALID)
   {
-      watchdogConfig(WATCHDOG_OFF);
-
       // Set the power enable high
       DDRC |= _BV(4);
       PORTC |= _BV(4);
@@ -749,7 +747,14 @@ int main(void) {
 #endif // soft_uart
 
   // Set up watchdog to trigger after desired timeout
-  watchdogConfig(WDTPERIOD);
+  if (IMAGE_VALID)
+  {
+      watchdogConfig(WDTPERIOD);
+  }
+  else
+  {
+      watchdogConfig(WATCHDOG_OFF);
+  }
 
 #if (LED_START_FLASHES > 0) || LED_DATA_FLASH || LED_START_ON
   /* Set LED pin as output */
